@@ -34,7 +34,7 @@
 ## 🏗️ Architecture
 
 ### Program ID
-- **Devnet/Localnet**: `8YsNicGdBn86spF22Kk4rTB59HpGrs1wWGUedjuEr2U5`
+- **Devnet/Localnet**: `3TwZoBQB7g8roimCHwUW7JTEHjGeZwvjcdQM5AeddqMY`
 
 ### Data Structure
 
@@ -67,6 +67,7 @@ pub struct FeedbackBoard {
 - **Board ID**: 1-32 characters, alphanumeric and hyphens/underscores only
 - **IPFS CID**: 32-64 characters, must start with "Qm" (base58) or "b" (base32)
 - **Duplicate Prevention**: Uses PDAs to prevent duplicate boards per creator
+- **Creator Restriction**: Board creators cannot submit feedback on their own boards
 
 ### Error Handling
 
@@ -84,6 +85,27 @@ pub enum FeedbackBoardError {
     InvalidBoardIdChars,
     FeedbackBoardNotFound,
     UnauthorizedAccess,
+    CreatorCannotSubmit,
+}
+```
+
+### Events
+
+The program emits events for important state changes:
+
+```rust
+#[event]
+pub struct FeedbackBoardCreated {
+    pub creator: Pubkey,
+    pub board_id: String,
+    pub ipfs_cid: String,
+}
+
+#[event]
+pub struct FeedbackSubmitted {
+    pub board_id: String,
+    pub new_ipfs_cid: String,
+    pub feedback_giver: Pubkey,
 }
 ```
 
@@ -91,13 +113,16 @@ pub enum FeedbackBoardError {
 
 The test suite covers:
 
-- ✅ Successful board creation and feedback submission
+- ✅ Successful board creation and feedback submission with event verification
 - ✅ Input validation (empty/invalid board IDs and IPFS CIDs)
+- ✅ Board ID length and character validation
+- ✅ Creator self-feedback prevention (CreatorCannotSubmit)
 - ✅ Duplicate board prevention
 - ✅ Insufficient funds handling
 - ✅ Platform fee verification
 - ✅ Multiple feedback submissions
 - ✅ Non-existent board handling
+- ✅ Event emission verification
 
 Run the complete test suite:
 
@@ -194,6 +219,28 @@ This ensures:
 - Deterministic addressing
 - Creator can have multiple boards with different IDs
 - No collision between different creators
+
+### Events
+
+The program emits the following events:
+
+#### `FeedbackBoardCreated`
+Emitted when a new feedback board is successfully created.
+
+**Fields:**
+- `creator`: Pubkey - The public key of the board creator
+- `board_id`: String - The unique identifier of the board
+- `ipfs_cid`: String - The initial IPFS content identifier
+
+#### `FeedbackSubmitted`
+Emitted when feedback is successfully submitted to a board.
+
+**Fields:**
+- `board_id`: String - The identifier of the feedback board
+- `new_ipfs_cid`: String - The updated IPFS content identifier
+- `feedback_giver`: Pubkey - The public key of the feedback submitter
+
+These events can be consumed by frontend applications for real-time updates and analytics tracking.
 
 ## 🤝 Contributing
 

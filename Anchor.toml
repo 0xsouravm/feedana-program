@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-feedana = "8YsNicGdBn86spF22Kk4rTB59HpGrs1wWGUedjuEr2U5"
+feedana = "3TwZoBQB7g8roimCHwUW7JTEHjGeZwvjcdQM5AeddqMY"
 
 [programs.devnet]
-feedana = "8YsNicGdBn86spF22Kk4rTB59HpGrs1wWGUedjuEr2U5"
+feedana = "3TwZoBQB7g8roimCHwUW7JTEHjGeZwvjcdQM5AeddqMY"
 
 [registry]
 url = "https://api.apr.dev"

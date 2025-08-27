@@ -4,6 +4,7 @@ use anchor_lang::solana_program::system_instruction::transfer;
 
 use crate::types::FeedbackBoard;
 use crate::errors::FeedbackBoardError::*;
+use crate::events::FeedbackBoardCreated;
 
 const PLATFORM_FEE_WALLET: &str = "96fN4Eegj84PaUcyEJrxUztDjo7Q7MySJzV2skLfgchY";
 
@@ -72,6 +73,14 @@ pub fn create_feedback_board(
         "Feedback board created with IPFS CID: {}",
         feedback_board.ipfs_cid
     );
+
+    // Emit event
+    emit!(FeedbackBoardCreated {
+        creator: feedback_board.creator,
+        board_id: feedback_board.board_id.clone(),
+        ipfs_cid: feedback_board.ipfs_cid.clone(),
+    });
+
     Ok(())
 }
 
