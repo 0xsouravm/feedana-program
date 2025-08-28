@@ -15,7 +15,7 @@ feedana = "3TwZoBQB7g8roimCHwUW7JTEHjGeZwvjcdQM5AeddqMY"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

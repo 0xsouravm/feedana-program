@@ -622,6 +622,141 @@ describe("feedana", () => {
       }
     });
   });
+
+  describe("Archive Feedback Board", () => {
+    it("Archives a feedback board successfully", async () => {
+      // Use the existing board from the first test
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      // Verify board is not archived initially
+      let feedbackBoardAccount = await program.account.feedbackBoard.fetch(feedbackBoardPda);
+      assert.equal(feedbackBoardAccount.isArchived, false);
+
+      // Archive the board
+      const tx = await program.methods
+        .archiveFeedbackBoard()
+        .accounts({
+          feedbackBoard: feedbackBoardPda,
+          creator: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      // Verify the board is now archived
+      feedbackBoardAccount = await program.account.feedbackBoard.fetch(feedbackBoardPda);
+      assert.equal(feedbackBoardAccount.isArchived, true);
+      assert.equal(feedbackBoardAccount.creator.toString(), creator.publicKey.toString());
+      assert.equal(feedbackBoardAccount.boardId, boardId);
+
+      // Verify the FeedbackBoardArchived event was emitted
+      const txResponse = await provider.connection.getTransaction(tx, {
+        commitment: "confirmed",
+      });
+      
+      if (txResponse && txResponse.meta && txResponse.meta.logMessages) {
+        const eventLogs = txResponse.meta.logMessages.filter(log => 
+          log.includes("Program data:") || log.includes("FeedbackBoardArchived")
+        );
+        assert.isTrue(eventLogs.length > 0, "FeedbackBoardArchived event should be emitted");
+      }
+    });
+
+    it("Fails when non-creator tries to archive board", async () => {
+      // Use the existing main test board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      try {
+        // Try to archive with feedbackGiver (not the creator)
+        await program.methods
+          .archiveFeedbackBoard()
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            creator: feedbackGiver.publicKey, // Not the actual creator
+          })
+          .signers([feedbackGiver])
+          .rpc();
+        
+        assert.fail("Should have failed when non-creator tries to archive");
+      } catch (error) {
+        assert.include(error.toString().toLowerCase(), "unauthorized");
+      }
+    });
+
+    it("Fails to archive already archived board", async () => {
+      // Use the existing board (now archived from the first test)
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      try {
+        // Try to archive the already archived board
+        await program.methods
+          .archiveFeedbackBoard()
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            creator: creator.publicKey,
+          })
+          .signers([creator])
+          .rpc();
+        
+        assert.fail("Should have failed when trying to archive already archived board");
+      } catch (error) {
+        assert.include(error.toString().toLowerCase(), "already archived");
+      }
+    });
+
+    it("Prevents feedback submission to archived board", async () => {
+      // Use the existing archived board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      const testFeedbackCid = updatedIpfsCid;
+
+      try {
+        // Try to submit feedback to archived board
+        await program.methods
+          .submitFeedback(testFeedbackCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            feedbackGiver: feedbackGiver.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([feedbackGiver])
+          .rpc();
+        
+        assert.fail("Should have failed when submitting feedback to archived board");
+      } catch (error) {
+        assert.include(error.toString().toLowerCase(), "archived");
+      }
+    });
+
+  });
 });
 
 async function airdrop(connection: any, address: any, amount = 100 * anchor.web3.LAMPORTS_PER_SOL) {

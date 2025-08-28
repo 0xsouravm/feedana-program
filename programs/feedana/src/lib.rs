@@ -25,4 +25,8 @@ pub mod feedana {
     pub fn submit_feedback(ctx: Context<SubmitFeedback>, new_ipfs_cid: String) -> Result<()> {
         instuctions::submit_feedback::submit_feedback(ctx, new_ipfs_cid)
     }
+
+    pub fn archive_feedback_board(ctx: Context<ArchiveFeedbackBoard>) -> Result<()> {
+        instuctions::archive_board::archive_feedback_board(ctx)
+    }
 }

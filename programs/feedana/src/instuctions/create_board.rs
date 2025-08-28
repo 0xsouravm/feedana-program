@@ -49,6 +49,7 @@ pub fn create_feedback_board(
     feedback_board.creator = ctx.accounts.creator.key();
     feedback_board.ipfs_cid = ipfs_cid;
     feedback_board.board_id = board_id;
+    feedback_board.is_archived = false;
 
     // Fixed platform fee for board creation: 10 lamports
     const PLATFORM_FEE_CREATE_BOARD: u64 = 10;
@@ -90,7 +91,7 @@ pub struct CreateFeedbackBoard<'info> {
     #[account(
         init,
         payer = creator,
-        space = 8 + 32 + 64 + 32, // discriminator + creator pubkey + ipfs_cid + board_id
+        space = 8 + 32 + 64 + 32 + 1, // discriminator + creator pubkey + ipfs_cid + board_id + is_archived
         seeds = [b"feedback_board", creator.key().as_ref(), board_id.as_bytes()],
         bump
     )]

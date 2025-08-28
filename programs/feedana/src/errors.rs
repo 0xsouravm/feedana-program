@@ -23,5 +23,9 @@ pub enum FeedbackBoardError {
     #[msg("Unauthorized access - only the creator can modify this board")]
     UnauthorizedAccess,
     #[msg("The board creator cannot submit a feedback in their own board")]
-    CreatorCannotSubmit
+    CreatorCannotSubmit,
+    #[msg("Feedback board is already archived")]
+    BoardAlreadyArchived,
+    #[msg("Cannot submit feedback to archived board")]
+    CannotSubmitToArchivedBoard,
 }

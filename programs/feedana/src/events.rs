@@ -13,3 +13,9 @@ pub struct FeedbackSubmitted {
     pub new_ipfs_cid: String,
     pub feedback_giver: Pubkey,
 }
+
+#[event]
+pub struct FeedbackBoardArchived {
+    pub creator: Pubkey,
+    pub board_id: String,
+}

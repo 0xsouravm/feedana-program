@@ -31,6 +31,11 @@ pub fn submit_feedback(ctx: Context<SubmitFeedback>, new_ipfs_cid: String) -> Re
         return Err(CreatorCannotSubmit.into());
     }
 
+    // Validation: Check if the board is archived
+    if feedback_board.is_archived {
+        return Err(CannotSubmitToArchivedBoard.into());
+    }
+
     // Fixed platform fee for feedback submission: 1 lamport
     const PLATFORM_FEE_SUBMIT_FEEDBACK: u64 = 1;
 
