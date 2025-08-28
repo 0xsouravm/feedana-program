@@ -22,4 +22,6 @@ pub enum FeedbackBoardError {
     FeedbackBoardNotFound,
     #[msg("Unauthorized access - only the creator can modify this board")]
     UnauthorizedAccess,
+    #[msg("The board creator cannot submit a feedback in their own board")]
+    CreatorCannotSubmit
 }

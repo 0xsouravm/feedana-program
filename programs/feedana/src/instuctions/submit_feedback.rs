@@ -4,6 +4,7 @@ use anchor_lang::solana_program::system_instruction::transfer;
 
 use crate::types::FeedbackBoard;
 use crate::errors::FeedbackBoardError::*;
+use crate::events::FeedbackSubmitted;
 
 const PLATFORM_FEE_WALLET: &str = "96fN4Eegj84PaUcyEJrxUztDjo7Q7MySJzV2skLfgchY";
 
@@ -24,6 +25,11 @@ pub fn submit_feedback(ctx: Context<SubmitFeedback>, new_ipfs_cid: String) -> Re
     }
 
     let feedback_board = &mut ctx.accounts.feedback_board;
+
+    // Validation: Check if the feedback giver is not the board creator
+    if feedback_board.creator == ctx.accounts.feedback_giver.key() {
+        return Err(CreatorCannotSubmit.into());
+    }
 
     // Fixed platform fee for feedback submission: 1 lamport
     const PLATFORM_FEE_SUBMIT_FEEDBACK: u64 = 1;
@@ -51,6 +57,14 @@ pub fn submit_feedback(ctx: Context<SubmitFeedback>, new_ipfs_cid: String) -> Re
         "Feedback submitted. Updated IPFS CID: {}",
         feedback_board.ipfs_cid
     );
+
+    // Emit event
+    emit!(FeedbackSubmitted {
+        board_id: feedback_board.board_id.clone(),
+        new_ipfs_cid: feedback_board.ipfs_cid.clone(),
+        feedback_giver: ctx.accounts.feedback_giver.key(),
+    });
+
     Ok(())
 }
 
