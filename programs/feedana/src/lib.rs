@@ -29,4 +29,12 @@ pub mod feedana {
     pub fn archive_feedback_board(ctx: Context<ArchiveFeedbackBoard>) -> Result<()> {
         instuctions::archive_board::archive_feedback_board(ctx)
     }
+
+    pub fn upvote_feedback(ctx: Context<UpvoteFeedback>, new_ipfs_cid: String) -> Result<()> {
+        instuctions::upvote_feedback::upvote_feedback(ctx, new_ipfs_cid)
+    }
+
+    pub fn downvote_feedback(ctx: Context<DownvoteFeedback>, new_ipfs_cid: String) -> Result<()> {
+        instuctions::downvote_feedback::downvote_feedback(ctx, new_ipfs_cid)
+    }
 }

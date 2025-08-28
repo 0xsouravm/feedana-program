@@ -28,4 +28,8 @@ pub enum FeedbackBoardError {
     BoardAlreadyArchived,
     #[msg("Cannot submit feedback to archived board")]
     CannotSubmitToArchivedBoard,
+    #[msg("Cannot upvote feedback in archived board")]
+    CannotUpvoteInArchivedBoard,
+    #[msg("Cannot downvote feedback in archived board")]
+    CannotDownvoteInArchivedBoard,
 }

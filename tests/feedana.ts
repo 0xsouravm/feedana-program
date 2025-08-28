@@ -623,6 +623,363 @@ describe("feedana", () => {
     });
   });
 
+  // Shared upvote/downvote test board setup
+  const upvoteBoardId = "test-board-upvote";
+  const upvoteCreator = anchor.web3.Keypair.generate();
+
+  describe("Upvote Feedback", () => {
+    // Create a new test board for upvote tests since the main board is archived
+    const voter = anchor.web3.Keypair.generate();
+    const upvoteIpfsCid = "QmUpvoteTestCid123456789012345678901234567890";
+    
+    before(async () => {
+      // Airdrop SOL to test accounts
+      await airdrop(provider.connection, upvoteCreator.publicKey);
+      await airdrop(provider.connection, voter.publicKey);
+      
+      // Create a feedback board for upvote tests
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(upvoteBoardId),
+        ],
+        program.programId
+      );
+
+      await program.methods
+        .createFeedbackBoard(upvoteBoardId, initialIpfsCid)
+        .accounts({
+          feedbackBoard: feedbackBoardPda,
+          creator: upvoteCreator.publicKey,
+          platformWallet: platformWallet,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([upvoteCreator])
+        .rpc();
+    });
+
+    it("Upvotes feedback successfully", async () => {
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(upvoteBoardId),
+        ],
+        program.programId
+      );
+
+      // Get initial balances
+      const initialVoterBalance = await provider.connection.getBalance(voter.publicKey);
+      const initialPlatformBalance = await provider.connection.getBalance(platformWallet);
+
+      // Upvote feedback
+      const tx = await program.methods
+        .upvoteFeedback(upvoteIpfsCid)
+        .accounts({
+          feedbackBoard: feedbackBoardPda,
+          voter: voter.publicKey,
+          platformWallet: platformWallet,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([voter])
+        .rpc();
+
+      // Verify the IPFS CID was updated
+      const feedbackBoardAccount = await program.account.feedbackBoard.fetch(feedbackBoardPda);
+      assert.equal(feedbackBoardAccount.ipfsCid, upvoteIpfsCid);
+      assert.equal(feedbackBoardAccount.creator.toString(), upvoteCreator.publicKey.toString());
+      assert.equal(feedbackBoardAccount.boardId, upvoteBoardId);
+
+      // Verify balance changes
+      const finalVoterBalance = await provider.connection.getBalance(voter.publicKey);
+      const finalPlatformBalance = await provider.connection.getBalance(platformWallet);
+      
+      const voterBalanceDecrease = initialVoterBalance - finalVoterBalance;
+      const platformBalanceIncrease = finalPlatformBalance - initialPlatformBalance;
+      
+      // Platform account must have received exactly 1 lamport
+      assert.equal(platformBalanceIncrease, 1, "Platform wallet must receive exactly 1 lamport upvote fee");
+      
+      // Voter account must have decreased by at least 1 lamport
+      assert.isTrue(voterBalanceDecrease >= 1, `Voter balance must decrease by at least 1 lamport, actual decrease: ${voterBalanceDecrease}`);
+
+      // Verify the FeedbackUpvoted event was emitted
+      const txResponse = await provider.connection.getTransaction(tx, {
+        commitment: "confirmed",
+      });
+      
+      if (txResponse && txResponse.meta && txResponse.meta.logMessages) {
+        const eventLogs = txResponse.meta.logMessages.filter(log => 
+          log.includes("Program data:") || log.includes("FeedbackUpvoted")
+        );
+        assert.isTrue(eventLogs.length > 0, "FeedbackUpvoted event should be emitted");
+      }
+    });
+
+    it("Fails to upvote with empty IPFS CID", async () => {
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(upvoteBoardId),
+        ],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .upvoteFeedback("")
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: voter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([voter])
+          .rpc();
+        
+        assert.fail("Should have failed when upvoting with empty IPFS CID");
+      } catch (error) {
+        // Check for EmptyIpfsCid error (code 6003)
+        assert.include(error.toString(), "6003");
+        assert.include(error.message || error.toString(), "IPFS CID cannot be empty");
+      }
+    });
+
+    it("Fails to upvote with invalid IPFS CID format", async () => {
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(upvoteBoardId),
+        ],
+        program.programId
+      );
+
+      const invalidCid = "InvalidUpvoteCidFormat123456789012345678901234";
+
+      try {
+        await program.methods
+          .upvoteFeedback(invalidCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: voter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([voter])
+          .rpc();
+        
+        assert.fail("Should have failed when upvoting with invalid IPFS CID format");
+      } catch (error) {
+        // Check for InvalidIpfsCid error (code 6000)
+        assert.include(error.toString(), "6000");
+      }
+    });
+
+    it("Fails to upvote with insufficient funds", async () => {
+      const poorVoter = anchor.web3.Keypair.generate();
+      
+      // Give minimal funds
+      await airdrop(provider.connection, poorVoter.publicKey, 0.0001 * anchor.web3.LAMPORTS_PER_SOL);
+      
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(upvoteBoardId),
+        ],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .upvoteFeedback(upvoteIpfsCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: poorVoter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([poorVoter])
+          .rpc();
+        
+        assert.fail("Should have failed when voter has insufficient funds");
+      } catch (error) {
+        assert.include(error.toString().toLowerCase(), "insufficient");
+      }
+    });
+  });
+
+  describe("Downvote Feedback", () => {
+    // Use the same test board from upvote tests for consistency and speed
+    const downvoteBoardId = "test-board-upvote"; // Reuse upvote board
+    const downvoter = anchor.web3.Keypair.generate();
+    const downvoteIpfsCid = "QmDownvoteTestCid12345678901234567890123456789";
+
+    before(async () => {
+      // Airdrop SOL to downvoter
+      await airdrop(provider.connection, downvoter.publicKey);
+    });
+
+    it("Downvotes feedback successfully", async () => {
+      // Use the existing upvote test board (already created)
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(downvoteBoardId),
+        ],
+        program.programId
+      );
+
+      // Get initial balances
+      const initialDownvoterBalance = await provider.connection.getBalance(downvoter.publicKey);
+      const initialPlatformBalance = await provider.connection.getBalance(platformWallet);
+
+      // Downvote feedback
+      const tx = await program.methods
+        .downvoteFeedback(downvoteIpfsCid)
+        .accounts({
+          feedbackBoard: feedbackBoardPda,
+          voter: downvoter.publicKey,
+          platformWallet: platformWallet,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([downvoter])
+        .rpc();
+
+      // Verify the IPFS CID was updated
+      const feedbackBoardAccount = await program.account.feedbackBoard.fetch(feedbackBoardPda);
+      assert.equal(feedbackBoardAccount.ipfsCid, downvoteIpfsCid);
+      assert.equal(feedbackBoardAccount.creator.toString(), upvoteCreator.publicKey.toString());
+      assert.equal(feedbackBoardAccount.boardId, downvoteBoardId);
+
+      // Verify balance changes
+      const finalDownvoterBalance = await provider.connection.getBalance(downvoter.publicKey);
+      const finalPlatformBalance = await provider.connection.getBalance(platformWallet);
+      
+      const downvoterBalanceDecrease = initialDownvoterBalance - finalDownvoterBalance;
+      const platformBalanceIncrease = finalPlatformBalance - initialPlatformBalance;
+      
+      // Platform account must have received exactly 1 lamport
+      assert.equal(platformBalanceIncrease, 1, "Platform wallet must receive exactly 1 lamport downvote fee");
+      
+      // Downvoter account must have decreased by at least 1 lamport
+      assert.isTrue(downvoterBalanceDecrease >= 1, `Downvoter balance must decrease by at least 1 lamport, actual decrease: ${downvoterBalanceDecrease}`);
+
+      // Verify the FeedbackDownvoted event was emitted
+      const txResponse = await provider.connection.getTransaction(tx, {
+        commitment: "confirmed",
+      });
+      
+      if (txResponse && txResponse.meta && txResponse.meta.logMessages) {
+        const eventLogs = txResponse.meta.logMessages.filter(log => 
+          log.includes("Program data:") || log.includes("FeedbackDownvoted")
+        );
+        assert.isTrue(eventLogs.length > 0, "FeedbackDownvoted event should be emitted");
+      }
+    });
+
+    it("Fails to downvote with empty IPFS CID", async () => {
+      // Use the existing upvote test board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(downvoteBoardId),
+        ],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .downvoteFeedback("")
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: downvoter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([downvoter])
+          .rpc();
+        
+        assert.fail("Should have failed when downvoting with empty IPFS CID");
+      } catch (error) {
+        // Check for EmptyIpfsCid error (code 6003)
+        assert.include(error.toString(), "6003");
+        assert.include(error.message || error.toString(), "IPFS CID cannot be empty");
+      }
+    });
+
+    it("Fails to downvote with invalid IPFS CID format", async () => {
+      // Use the existing upvote test board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(downvoteBoardId),
+        ],
+        program.programId
+      );
+
+      const invalidCid = "InvalidDownvoteCidFormat1234567890123456789012";
+
+      try {
+        await program.methods
+          .downvoteFeedback(invalidCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: downvoter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([downvoter])
+          .rpc();
+        
+        assert.fail("Should have failed when downvoting with invalid IPFS CID format");
+      } catch (error) {
+        // Check for InvalidIpfsCid error (code 6000)
+        assert.include(error.toString(), "6000");
+      }
+    });
+
+    it("Fails to downvote with insufficient funds", async () => {
+      const poorDownvoter = anchor.web3.Keypair.generate();
+      
+      // Give minimal funds
+      await airdrop(provider.connection, poorDownvoter.publicKey, 0.0001 * anchor.web3.LAMPORTS_PER_SOL);
+      
+      // Use the existing upvote test board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          upvoteCreator.publicKey.toBuffer(),
+          Buffer.from(downvoteBoardId),
+        ],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .downvoteFeedback(downvoteIpfsCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: poorDownvoter.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([poorDownvoter])
+          .rpc();
+        
+        assert.fail("Should have failed when downvoter has insufficient funds");
+      } catch (error) {
+        assert.include(error.toString().toLowerCase(), "insufficient");
+      }
+    });
+  });
+
   describe("Archive Feedback Board", () => {
     it("Archives a feedback board successfully", async () => {
       // Use the existing board from the first test
@@ -753,6 +1110,74 @@ describe("feedana", () => {
         assert.fail("Should have failed when submitting feedback to archived board");
       } catch (error) {
         assert.include(error.toString().toLowerCase(), "archived");
+      }
+    });
+
+    it("Prevents upvoting on archived board", async () => {
+      // Use the existing archived board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      const testUpvoteCid = "QmArchivedUpvoteTest123456789012345678901234567890";
+
+      try {
+        // Try to upvote on archived board
+        await program.methods
+          .upvoteFeedback(testUpvoteCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: feedbackGiver.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([feedbackGiver])
+          .rpc();
+        
+        assert.fail("Should have failed when upvoting on archived board");
+      } catch (error) {
+        // Check for CannotUpvoteInArchivedBoard error (code 6013)
+        assert.include(error.toString(), "6013");
+        assert.include(error.message || error.toString(), "Cannot upvote feedback in archived board");
+      }
+    });
+
+    it("Prevents downvoting on archived board", async () => {
+      // Use the existing archived board
+      const [feedbackBoardPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("feedback_board"),
+          creator.publicKey.toBuffer(),
+          Buffer.from(boardId),
+        ],
+        program.programId
+      );
+
+      const testDownvoteCid = "QmArchivedDownvoteTest12345678901234567890123456789";
+
+      try {
+        // Try to downvote on archived board
+        await program.methods
+          .downvoteFeedback(testDownvoteCid)
+          .accounts({
+            feedbackBoard: feedbackBoardPda,
+            voter: feedbackGiver.publicKey,
+            platformWallet: platformWallet,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([feedbackGiver])
+          .rpc();
+        
+        assert.fail("Should have failed when downvoting on archived board");
+      } catch (error) {
+        // Check for CannotDownvoteInArchivedBoard error (code 6014)
+        assert.include(error.toString(), "6014");
+        assert.include(error.message || error.toString(), "Cannot downvote feedback in archived board");
       }
     });
 
