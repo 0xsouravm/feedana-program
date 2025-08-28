@@ -50,6 +50,9 @@ pub struct FeedbackBoard {
 
 1. **create_feedback_board**: Creates a new feedback board with platform fee payment
 2. **submit_feedback**: Updates existing board with new feedback data
+3. **archive_feedback_board**: Archives a feedback board, preventing further submissions
+4. **upvote_feedback**: Upvotes feedback with platform fee payment
+5. **downvote_feedback**: Downvotes feedback with platform fee payment
 
 ## 💰 Fee Structure
 
@@ -57,6 +60,9 @@ pub struct FeedbackBoard {
 |--------|-----|-------------|
 | Create Board | 10 lamports | One-time fee for creating a feedback board |
 | Submit Feedback | 1 lamport | Fee per feedback submission |
+| Archive Board | Free | No fee for archiving a board (creator only) |
+| Upvote Feedback | 1 lamport | Fee per upvote action |
+| Downvote Feedback | 1 lamport | Fee per downvote action |
 
 **Platform Wallet**: `96fN4Eegj84PaUcyEJrxUztDjo7Q7MySJzV2skLfgchY`
 
@@ -68,6 +74,8 @@ pub struct FeedbackBoard {
 - **IPFS CID**: 32-64 characters, must start with "Qm" (base58) or "b" (base32)
 - **Duplicate Prevention**: Uses PDAs to prevent duplicate boards per creator
 - **Creator Restriction**: Board creators cannot submit feedback on their own boards
+- **Archive Protection**: Prevents submissions, upvotes, and downvotes on archived boards
+- **Authorization**: Only board creators can archive their own boards
 
 ### Error Handling
 
@@ -75,17 +83,21 @@ The program includes comprehensive error codes:
 
 ```rust
 pub enum FeedbackBoardError {
-    InvalidIpfsCid,
-    BoardIdTooLong,
-    EmptyBoardId,
-    EmptyIpfsCid,
-    DuplicateFeedbackBoard,
-    InsufficientFunds,
-    InvalidIpfsCidLength,
-    InvalidBoardIdChars,
-    FeedbackBoardNotFound,
-    UnauthorizedAccess,
-    CreatorCannotSubmit,
+    InvalidIpfsCid,                    // 6000 - Invalid IPFS CID format
+    BoardIdTooLong,                    // 6001 - Board ID too long
+    EmptyBoardId,                      // 6002 - Board ID cannot be empty
+    EmptyIpfsCid,                      // 6003 - IPFS CID cannot be empty
+    DuplicateFeedbackBoard,            // 6004 - Board already exists
+    InsufficientFunds,                 // 6005 - Insufficient funds
+    InvalidIpfsCidLength,              // 6006 - Invalid IPFS CID length
+    InvalidBoardIdChars,               // 6007 - Invalid board ID characters
+    FeedbackBoardNotFound,             // 6008 - Board does not exist
+    UnauthorizedAccess,                // 6009 - Unauthorized access
+    CreatorCannotSubmit,               // 6010 - Creator cannot submit feedback
+    BoardAlreadyArchived,              // 6011 - Board is already archived
+    CannotSubmitToArchivedBoard,       // 6012 - Cannot submit to archived board
+    CannotUpvoteInArchivedBoard,       // 6013 - Cannot upvote in archived board
+    CannotDownvoteInArchivedBoard,     // 6014 - Cannot downvote in archived board
 }
 ```
 
@@ -107,6 +119,26 @@ pub struct FeedbackSubmitted {
     pub new_ipfs_cid: String,
     pub feedback_giver: Pubkey,
 }
+
+#[event]
+pub struct FeedbackBoardArchived {
+    pub creator: Pubkey,
+    pub board_id: String,
+}
+
+#[event]
+pub struct FeedbackUpvoted {
+    pub board_id: String,
+    pub new_ipfs_cid: String,
+    pub voter: Pubkey,
+}
+
+#[event]
+pub struct FeedbackDownvoted {
+    pub board_id: String,
+    pub new_ipfs_cid: String,
+    pub voter: Pubkey,
+}
 ```
 
 ## 🧪 Testing
@@ -123,6 +155,10 @@ The test suite covers:
 - ✅ Multiple feedback submissions
 - ✅ Non-existent board handling
 - ✅ Event emission verification
+- ✅ Board archiving functionality with authorization checks
+- ✅ Upvote and downvote functionality with validation
+- ✅ Archive protection (preventing actions on archived boards)
+- ✅ Comprehensive error code testing (6000-6014)
 
 Run the complete test suite:
 
@@ -155,8 +191,11 @@ feedana-program/
 │       │   ├── events.rs           # Event definitions 
 │       │   └── instructions/
 │       │       ├── mod.rs
-│       │       ├── create_board.rs # Board creation logic
-│       │       └── submit_feedback.rs # Feedback submission logic
+│       │       ├── create_board.rs      # Board creation logic
+│       │       ├── submit_feedback.rs   # Feedback submission logic
+│       │       ├── archive_board.rs     # Board archiving logic
+│       │       ├── upvote_feedback.rs   # Upvote functionality
+│       │       └── downvote_feedback.rs # Downvote functionality
 │       ├── Cargo.toml
 │       └── Xargo.toml
 ├── tests/
@@ -208,6 +247,45 @@ Updates an existing feedback board with new IPFS CID containing updated feedback
 
 **Fee:** 1 lamport
 
+#### `archive_feedback_board`
+Archives a feedback board, preventing any further submissions, upvotes, or downvotes.
+
+**Parameters:** None
+
+**Accounts:**
+- `feedback_board`: Existing feedback board PDA to archive
+- `creator`: Signer (must be the board creator)
+
+**Fee:** Free (no platform fee)
+
+#### `upvote_feedback`
+Upvotes feedback by updating the board's IPFS CID with vote-adjusted content.
+
+**Parameters:**
+- `new_ipfs_cid`: String (32-64 chars, valid IPFS CID format)
+
+**Accounts:**
+- `feedback_board`: Existing feedback board PDA
+- `voter`: Signer and fee payer
+- `platform_wallet`: Platform fee recipient
+- `system_program`: System program for fee transfer
+
+**Fee:** 1 lamport
+
+#### `downvote_feedback`
+Downvotes feedback by updating the board's IPFS CID with vote-adjusted content.
+
+**Parameters:**
+- `new_ipfs_cid`: String (32-64 chars, valid IPFS CID format)
+
+**Accounts:**
+- `feedback_board`: Existing feedback board PDA
+- `voter`: Signer and fee payer
+- `platform_wallet`: Platform fee recipient
+- `system_program`: System program for fee transfer
+
+**Fee:** 1 lamport
+
 ### PDA Seeds
 
 Feedback boards use the following seed structure:
@@ -240,7 +318,30 @@ Emitted when feedback is successfully submitted to a board.
 - `new_ipfs_cid`: String - The updated IPFS content identifier
 - `feedback_giver`: Pubkey - The public key of the feedback submitter
 
-These events can be consumed by frontend applications for real-time updates and analytics tracking.
+#### `FeedbackBoardArchived`
+Emitted when a feedback board is successfully archived.
+
+**Fields:**
+- `creator`: Pubkey - The public key of the board creator
+- `board_id`: String - The identifier of the archived board
+
+#### `FeedbackUpvoted`
+Emitted when feedback is successfully upvoted.
+
+**Fields:**
+- `board_id`: String - The identifier of the feedback board
+- `new_ipfs_cid`: String - The updated IPFS content identifier with upvote
+- `voter`: Pubkey - The public key of the upvoter
+
+#### `FeedbackDownvoted`
+Emitted when feedback is successfully downvoted.
+
+**Fields:**
+- `board_id`: String - The identifier of the feedback board
+- `new_ipfs_cid`: String - The updated IPFS content identifier with downvote
+- `voter`: Pubkey - The public key of the downvoter
+
+These events can be consumed by frontend applications for real-time updates, vote tracking, and analytics.
 
 ## 🤝 Contributing
 
